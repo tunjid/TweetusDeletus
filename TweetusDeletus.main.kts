@@ -63,7 +63,6 @@ val TweetCSV.details: TweetDetails
     }.toMap()
 
 // Start script
-
 if (args.size != 1) throw IllegalArgumentException("Invalid script arguments")
 val configPath = args[0]
 
@@ -73,8 +72,8 @@ val properties = Properties().apply { load(FileInputStream(configPath)) }
 println(properties)
 
 val config = Config(properties)
-val deleter = tweetDeleter(config)
-val tweetsToDelete = readJsonStream(config.tweetsToDeletePath)
+val deleter = config.tweetDeleter()
+val tweetsToDelete = config.tweetsToDeletePath.tweetJsonSequence()
 val statusWriter = CSVWriter(config.deletedTweetsPath.toFile().bufferedWriter())
 
 tweetsToDelete
@@ -89,44 +88,34 @@ tweetsToDelete
 statusWriter.close()
 
 println("DONE")
-
 // End script
 
 
 // Utility methods
 
-fun readJsonStream(path: Path): Sequence<TweetDetails> {
-    val source = Okio.buffer(Okio.source(path.toFile().inputStream()))
+fun Path.tweetJsonSequence(): Sequence<TweetDetails> {
+    val source = Okio.buffer(Okio.source(toFile().inputStream()))
     val reader = JsonReader.of(Okio.buffer(source))
     return reader.tweetDetails()
         .plus(generateSequence(reader::close))
         .filterIsInstance<TweetDetails>()
 }
 
-fun csvSequence(path: Path): Sequence<TweetCSV> {
-    val inputStream = path.toFile().inputStream()
+fun Path.tweetCsvSequence(): Sequence<TweetCSV> {
+    val inputStream = toFile().inputStream()
     val reader = BufferedReader(InputStreamReader(inputStream, Charset.forName("UTF-8")))
     val csvReader = CSVReader(reader)
     return generateSequence(csvReader::readNext)
 }
 
-inline fun <reified T> JsonReader.jsonSequence(
-    crossinline open: JsonReader.() -> Unit,
-    crossinline close: JsonReader.() -> Unit,
-    crossinline nextFunction: JsonReader.() -> T?,
-): Sequence<T> = generateSequence { open(this); null }
-    .plus(generateSequence { nextFunction(this) })
-    .plus(generateSequence { close(this); null })
-    .filterIsInstance<T>()
-
-fun tweetDeleter(config: Config): (Int, TweetDetails) -> DeletionStatus {
+fun Config.tweetDeleter(): (Int, TweetDetails) -> DeletionStatus {
     val twitter = TwitterFactory(
         ConfigurationBuilder()
             .setDebugEnabled(true)
-            .setOAuthConsumerKey(config.consumerKey)
-            .setOAuthConsumerSecret(config.consumerSecret)
-            .setOAuthAccessToken(config.accessToken)
-            .setOAuthAccessTokenSecret(config.accessTokenSecret)
+            .setOAuthConsumerKey(consumerKey)
+            .setOAuthConsumerSecret(consumerSecret)
+            .setOAuthAccessToken(accessToken)
+            .setOAuthAccessTokenSecret(accessTokenSecret)
             .build()
     ).instance
 
@@ -147,6 +136,15 @@ fun tweetDeleter(config: Config): (Int, TweetDetails) -> DeletionStatus {
         )
     }
 }
+
+inline fun <reified T> JsonReader.jsonSequence(
+    crossinline open: JsonReader.() -> Unit,
+    crossinline close: JsonReader.() -> Unit,
+    crossinline nextFunction: JsonReader.() -> T?,
+): Sequence<T> = generateSequence { open(this); null }
+    .plus(generateSequence { nextFunction(this) })
+    .plus(generateSequence { close(this); null })
+    .filterIsInstance<T>()
 
 fun JsonReader.tweetDetails(): Sequence<TweetDetails> = jsonSequence(
     open = JsonReader::beginArray,
@@ -221,7 +219,7 @@ class Config(properties: Properties) {
 
     private val deletedTweetIds by lazy {
         deletedTweetsPath.toFile().apply { if (!exists()) createNewFile() }
-        csvSequence(deletedTweetsPath)
+        deletedTweetsPath.tweetCsvSequence()
             .map { it.details.id }
             .toSet()
     }
