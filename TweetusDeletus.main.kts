@@ -14,6 +14,7 @@ import twitter4j.TwitterFactory
 import twitter4j.conf.ConfigurationBuilder
 import java.io.*
 import java.nio.charset.Charset
+import java.nio.file.Path
 import java.nio.file.Paths
 import java.text.SimpleDateFormat
 import java.util.*
@@ -66,7 +67,7 @@ val TweetCSV.details: TweetDetails
 if (args.size != 1) throw IllegalArgumentException("Invalid script arguments")
 val configPath = args[0]
 
-Paths.get(configPath)
+configPath.asPath() ?: throw IllegalArgumentException("Invalid config path: $configPath")
 
 val properties = Properties().apply { load(FileInputStream(configPath)) }
 println(properties)
@@ -74,17 +75,15 @@ println(properties)
 val config = Config(properties)
 val deleter = tweetDeleter(config)
 val tweetsToDelete = readJsonStream(config.tweetsToDeletePath)
-val statusWriter = CSVWriter(
-    BufferedWriter(
-        FileWriter(config.deletedTweetsPath, true)
-    )
-)
+val statusWriter = CSVWriter(config.deletedTweetsPath.toFile().bufferedWriter())
+
 tweetsToDelete
     .filter(config::canDelete)
-    .forEachIndexed { index, tweetDetail ->
-        val status = deleter.invoke(index, tweetDetail)
-        if (status.deleted) statusWriter.writeNext(tweetDetail.csv)
-        println(status)
+    .mapIndexed(deleter)
+    .onEach(::println)
+    .filter(DeletionStatus::deleted)
+    .forEach { status ->
+        statusWriter.writeNext(status.tweetDetails.csv)
     }
 
 statusWriter.close()
@@ -96,16 +95,16 @@ println("DONE")
 
 // Utility methods
 
-fun readJsonStream(path: String): Sequence<TweetDetails> {
-    val source = Okio.buffer(Okio.source(FileInputStream(path)))
+fun readJsonStream(path: Path): Sequence<TweetDetails> {
+    val source = Okio.buffer(Okio.source(path.toFile().inputStream()))
     val reader = JsonReader.of(Okio.buffer(source))
     return reader.tweetDetails()
-        .plus(generateSequence { reader.close() })
+        .plus(generateSequence(reader::close))
         .filterIsInstance<TweetDetails>()
 }
 
-fun csvSequence(path: String): Sequence<TweetCSV> {
-    val inputStream = FileInputStream(path)
+fun csvSequence(path: Path): Sequence<TweetCSV> {
+    val inputStream = path.toFile().inputStream()
     val reader = BufferedReader(InputStreamReader(inputStream, Charset.forName("UTF-8")))
     val csvReader = CSVReader(reader)
     return generateSequence(csvReader::readNext)
@@ -115,9 +114,9 @@ inline fun <reified T> JsonReader.jsonSequence(
     crossinline open: JsonReader.() -> Unit,
     crossinline close: JsonReader.() -> Unit,
     crossinline nextFunction: JsonReader.() -> T?,
-): Sequence<T> = generateSequence { open(this) }
+): Sequence<T> = generateSequence { open(this); null }
     .plus(generateSequence { nextFunction(this) })
-    .plus(generateSequence { close(this) })
+    .plus(generateSequence { close(this); null })
     .filterIsInstance<T>()
 
 fun tweetDeleter(config: Config): (Int, TweetDetails) -> DeletionStatus {
@@ -142,9 +141,9 @@ fun tweetDeleter(config: Config): (Int, TweetDetails) -> DeletionStatus {
 
         DeletionStatus(
             index = index,
-            tweetId = tweetId,
             deleted = deleted,
-            message = message
+            message = message,
+            tweetDetails = details
         )
     }
 }
@@ -186,21 +185,34 @@ fun JsonReader.nextTweet(): TweetDetails = jsonSequence(
 fun camelToSnakeCase(string: String): String =
     camelCaseRegex.replace(string) { "_${it.value}" }.toLowerCase()
 
+fun String.asPath(): Path? = try {
+    Paths.get(this)
+} catch (e: Exception) {
+    null
+}
+
 data class DeletionStatus(
     val index: Int,
-    val tweetId: String,
     val deleted: Boolean,
-    val message: String
+    val message: String,
+    val tweetDetails: TweetDetails
 )
 
 class Config(properties: Properties) {
+
+    private val paths = properties.mapValues { (key, value) ->
+        if (key.toString().toLowerCase().contains("path")) value.toString().asPath()
+            ?: throw IllegalArgumentException("Invalid path for $key: $value")
+        else null
+    }
+
     val consumerKey: String by properties
     val consumerSecret: String by properties
     val accessToken: String by properties
     val accessTokenSecret: String by properties
 
-    val tweetsToDeletePath: String by properties
-    val deletedTweetsPath: String by properties
+    val tweetsToDeletePath: Path by paths
+    val deletedTweetsPath: Path by paths
 
     private val favoritesThreshold: String by properties
     private val retweetsThreshold: String by properties
@@ -208,7 +220,7 @@ class Config(properties: Properties) {
     private val cutOffDate: String by properties
 
     private val deletedTweetIds by lazy {
-        File(deletedTweetsPath).apply { if (!exists()) createNewFile() }
+        deletedTweetsPath.toFile().apply { if (!exists()) createNewFile() }
         csvSequence(deletedTweetsPath)
             .map { it.details.id }
             .toSet()
@@ -226,9 +238,9 @@ class Config(properties: Properties) {
 class KeyedDelegate<T>(
     private val nameTransform: (String) -> String = { it },
     private val mapper: (String) -> T,
-) : ReadOnlyProperty<TweetDetails, T> {
+) : ReadOnlyProperty<Map<String, String>, T> {
     override fun getValue(
         thisRef: Map<String, String>,
         property: KProperty<*>
-    ): T = mapper(thisRef.getValue(nameTransform(property.name)))
+    ): T = mapper(thisRef.getValue(nameTransform(property.name)).toString())
 }
