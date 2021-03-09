@@ -16,14 +16,16 @@ Install Kotlin on the command line by following the instructions [here](https://
 
 3. Unzip the archive file and locate the tweet.js file, it should be under unzippedFolder/data/tweet.js
 
-4. Define your configuration file for the script and save it with a `.properties` extension. It should look something like:
+4. Copy tweet.js aand rename it to whatever you wan, but make sure you open the copy and delete the  `window.YTD.tweet.part0 = ` substring.
+
+5. Define your configuration file for the script and save it with a `.properties` extension. It should look something like:
 
 ```
 consumerKey=xxx
 consumerSecret=xxx
 accessToken=xxx
 accessTokenSecret=xxx
-tweetsToDeletePath=pathToUnzippedFolder/data/tweet.js
+tweetsToDeletePath=pathToUnzippedFolder/data/editedTweet.js
 deletedTweetsPath=pathToWhereYouWantTheDeletionLogToBe/whateverYouWantTheLogFileToBeCalled.csv
 favoritesThreshold=2
 retweetsThreshold=2
@@ -37,6 +39,6 @@ Some of your old tweets are gems, and what better way to determine this than lik
 
 `cutOffDate` lets you specify when to stop deleting tweets; all tweets in the archive before the specified date will be processed.
 
-5. Run the script: `kotlin TweetusDeletus.main.kts pathToConfig.properties`.
+6. Run the script: `kotlin TweetusDeletus.main.kts pathToConfig.properties`.
 
 Example: `kotlin TweetusDeletus.main.kts /Users/adetunjidahunsi/Desktop/tweetusDeletus.properties`
