@@ -16,7 +16,7 @@ Install Kotlin on the command line by following the instructions [here](https://
 
 3. Unzip the archive file and locate the tweet.js file, it should be under unzippedFolder/data/tweet.js
 
-4. Copy tweet.js aand rename it to whatever you wan, but make sure you open the copy and delete the  `window.YTD.tweet.part0 = ` substring.
+4. Copy tweet.js and rename it to whatever you want, but make sure you open the copy and delete the  `window.YTD.tweet.part0 = ` substring.
 
 5. Define your configuration file for the script and save it with a `.properties` extension. It should look something like:
 
